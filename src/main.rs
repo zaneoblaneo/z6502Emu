@@ -118,8 +118,30 @@ impl Cpu6502{
                     self.pc += 1;
                 },
                 0x0D => { // ORA abs
-                    unimplemented!("TODO: implement ORA abs.");
-                }
+                    let tmp: u16 
+                        = ((self.memory[self.pc as usize + 2] as u16) << 8) 
+                        | self.memory[self.pc as usize + 1] as u16;
+                    self.a |= self.memory[tmp as usize];
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.set_flag(Self::N_FLAG, self.a > 0b1000_0000);
+                    self.pc += 3;
+                },
+                0x0E => { // ASL abs
+                    let mut tmp: u16 = 
+                        ((self.memory[self.pc as usize + 2] as u16) << 8)
+                        | self.memory[self.pc as usize + 1] as u16;
+                    self.set_flag(Self::C_FLAG, 
+                                  (tmp & 0b1000_0000_0000_0000) != 0);
+                    tmp <<= 1;
+                    self.memory[self.pc as usize + 1] = tmp as u8;
+                    self.memory[self.pc as usize + 2] 
+                        = (tmp >> 8) as u8;
+                    self.pc += 3;
+                },
+                0x10 => { // BPL rel
+                    unimplemented!("I don't know if this is a relative or 
+                                   absolute jump.");
+                },
                 0x18 => { // CLC
                     self.set_flag(Self::C_FLAG, false);
                     self.pc += 1;
