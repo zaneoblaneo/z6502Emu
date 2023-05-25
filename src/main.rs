@@ -265,10 +265,12 @@ impl Cpu6502{
                     self.pc += 2;
                 },
                 0x26 => { // ROL zpg (sets C, Z, and N)
+                    let tmp: u8 = self.get_flag_u8(Self::C_FLAG);
+                    
                     self.set_flag(Self::C_FLAG, 
                                   self.check_neg_u8(self.memory[b as usize]));
                     self.memory[b as usize] = (self.memory[b as usize] << 1) 
-                        | self.get_flag_u8(Self::C_FLAG);
+                        | tmp;
                     self.set_flag(Self::N_FLAG, 
                                   self.check_neg_u8(self.memory[b as usize]));
                     self.set_flag(Self::Z_FLAG, self.memory[b as usize] == 0);
@@ -292,20 +294,35 @@ impl Cpu6502{
                     self.pc += 1;
                 },
                 0x2C => { // BIT abs
-                    unimplemented!("0x{:04} BIT abs", self.pc);
+                    let tmp = self.memory[hw as usize];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::V_FLAG, tmp & 0b0100_0000 != 0);
+                    self.set_flag(Self::Z_FLAG, self.a & tmp == 0);
+                    self.pc += 3;
                 },
                 0x2D => { // AND abs
-                    unimplemented!("0x{:04} AND abs", self.pc);
+                    self.a &= self.memory[hw as usize];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 3;
                 },
                 0x2E => { // ROL abs
-                    unimplemented!("0x{:04} ROL abs", self.pc);
+                    let tmp = self.get_flag_u8(Self::C_FLAG);
+                    self.set_flag(Self::C_FLAG, 
+                                  self.check_neg_u8(self.memory[hw as usize]));
+                    self.memory[hw as usize] = 
+                        (self.memory[hw as usize] << 1)  | tmp;
+                    self.set_flag(Self::N_FLAG, 
+                                  self.check_neg_u8(self.memory[hw as usize]));
+                    self.set_flag(Self::Z_FLAG, self.memory[hw as usize] == 0);
+                    self.pc += 3;
                 },
                 0x58 => { // CLI
                     self.set_flag(Self::I_FLAG, false);
                     self.pc += 1;
                 },
                 0xA2 => { // LDX #
-                    self.set_flag(Self::N_FLAG, b > 0b1000_0000);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(b));
                     self.set_flag(Self::Z_FLAG, b == 0);
                     self.x = b;
                     self.pc += 2;
@@ -319,7 +336,7 @@ impl Cpu6502{
                     self.pc += 1;
                 },
                 0xE0 => { // CPX #
-                    self.set_flag(Self::N_FLAG, (b & 0b1000_0000u8) != 0u8);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(b));
                     self.set_flag(Self::Z_FLAG, b == 0);
                     self.set_flag(Self::C_FLAG, self.x < b);
                     self.pc += 2;
