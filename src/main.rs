@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-
+#[derive(Copy, Clone)]
 struct Cpu6502{
     a: u8,
     x: u8,
@@ -41,7 +41,15 @@ impl Cpu6502{
         self.sp = 0xFD;
         self.status = 0x24;
     }
+
+    fn check_neg_u8(self, num: u8) -> bool {
+        num & 0b1000_0000 != 0
+    }
     
+    fn check_neg_u16(self, num: u16) -> bool {
+        num & 0b1000_0000_0000_0000 != 0
+    }
+
     fn set_flag(&mut self, flag_mask: u8, d: bool){
         if d {
             self.status |= flag_mask;
@@ -50,9 +58,33 @@ impl Cpu6502{
         }
     }
 
+    fn get_flag(self, flag_mask: u8) -> bool{
+        self.status & flag_mask != 0
+    }
+    
+    /// returns the flag selected by `flag_mask`
+    /// to the user as either a `0` or a `1`
+    fn get_flag_u8(&mut self, flag_mask: u8) -> u8{
+        match flag_mask{
+            0b1000_0000 => (self.status >> 7) & 1,
+            0b0100_0000 => (self.status >> 6) & 1,
+            0b0001_0000 => (self.status >> 4) & 1,
+            0b0000_1000 => (self.status >> 3) & 1,
+            0b0000_0100 => (self.status >> 2) & 1,
+            0b0000_0010 => (self.status >> 1) & 1,
+            0b0000_0001 => self.status & 1,
+            _ => unreachable!(""),
+        }
+    }
+
     fn push_u8(&mut self, d: u8){
         self.memory[self.sp as usize] = d;
         self.sp -= 1u8;
+    }
+
+    fn pop_u8(&mut self) -> u8{
+        self.sp += 1u8;
+        self.memory[self.sp as usize - 1usize]
     }
 
     fn push_u16(&mut self, d: u16){
@@ -61,14 +93,21 @@ impl Cpu6502{
         self.sp -= 2u8;
     }
 
+    fn pop_u16(&mut self) -> u16{
+        let out: u16 = (self.memory[self.sp as usize + 1usize] as u16)
+            << 8 | (self.memory[self.sp as usize] as u16);
+        self.sp += 2u8;
+        out
+    }
+
     fn run(&mut self) {
         loop {
             let old_pc: u16 = self.pc;
             let opcode: u8  = self.memory[self.pc as usize];
             let b: u8       = self.memory[self.pc as usize + 1usize];
-            let hw: u16    = ((self.memory[self.pc as usize + 2usize] as u16) 
-                           << 8u16) | 
-                self.memory[self.pc as usize + 1usize] as u16;
+            let hw: u16     = ((self.memory[self.pc as usize + 2usize] as u16) 
+                            << 8u16) 
+                            | self.memory[self.pc as usize + 1usize] as u16;
             match opcode {
                 0x00 => { // BRK
                     self.push_u16(hw);
@@ -80,25 +119,26 @@ impl Cpu6502{
                     self.pc += 1;
                 },
                 0x01 => { // ORA X, ind
-                    let addr: u16 = hw; 
-                    self.set_flag(Self::N_FLAG, addr > 0b1000_0000);
-                    self.set_flag(Self::Z_FLAG, addr == 0);
-                    self.a |= self.memory[addr as usize];
+                    let addr: usize = (b as usize + self.x as usize) << 8 
+                        | (b as usize + self.x as usize + 1usize);
+                    self.a |= self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
                     self.pc += 2;
                 }
                 0x05 => { // ORA zpg
                     let d = self.memory[b as usize];
-                    self.set_flag(Self::N_FLAG, d > 0b1000_0000);
-                    self.set_flag(Self::Z_FLAG, d == 0);
                     self.a |= self.memory[d as usize];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
                     self.pc += 2;
                 },
                 0x06 => { // ASL zpg
                     let mut d: u8 = self.memory[b as usize];
-                    self.set_flag(Self::C_FLAG, (d & 0b1000_0000) != 0);
+                    self.set_flag(Self::C_FLAG, self.check_neg_u8(d));
                     d <<= 1;
                     self.set_flag(Self::Z_FLAG, d == 0);
-                    self.set_flag(Self::N_FLAG, d > 0b1000_0000);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(d));
                     self.memory[b as usize] = d;
                     self.pc += 2;
 
@@ -108,28 +148,31 @@ impl Cpu6502{
                     self.pc += 1;
                 }
                 0x09 => { // ORA #
-                    self.set_flag(Self::N_FLAG, b > 0b1000_0000);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(b));
                     self.set_flag(Self::Z_FLAG, b == 0);
                     self.a |= b;
                     self.pc += 2;
                 },
                 0x0A => { // ASL A
-                    self.set_flag(Self::C_FLAG, (self.a & 0b1000_0000) != 0);
+                    self.set_flag(Self::C_FLAG, self.check_neg_u8(self.a));
                     self.a <<= 1u8;
                     self.set_flag(Self::Z_FLAG, self.a == 0);
-                    self.set_flag(Self::N_FLAG, self.a > 0b1000_0000);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
                     self.pc += 1;
                 },
                 0x0D => { // ORA abs
                     self.a |= self.memory[hw as usize];
                     self.set_flag(Self::Z_FLAG, self.a == 0);
-                    self.set_flag(Self::N_FLAG, self.a > 0b1000_0000);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
                     self.pc += 3;
                 },
                 0x0E => { // ASL abs
                     self.set_flag(Self::C_FLAG, 
-                                  (hw & 0b1000_0000_0000_0000) != 0);
+                                  self.check_neg_u8(self.memory[hw as usize]));
                     self.memory[hw as usize] <<= 1;
+                    self.set_flag(Self::N_FLAG, 
+                                  self.check_neg_u8(self.memory[hw as usize]));
+                    self.set_flag(Self::Z_FLAG, self.memory[hw as usize] == 0);
                     self.pc += 3;
                 },
                 0x10 => { // BPL rel
@@ -140,13 +183,11 @@ impl Cpu6502{
                     }
                 },
                 0x11 => { // ORA ind,Y
-                    let mut data: u8 = self.memory[b as usize] + self.y;
-                    if self.status & Self::C_FLAG != 0{
-                        data += 1;
-                    }
+                    let data: u8 = self.memory[b as usize] 
+                        + self.y + self.get_flag_u8(Self::C_FLAG);
                     self.a |= data;
                     self.set_flag(Self::Z_FLAG, self.a == 0);
-                    self.set_flag(Self::N_FLAG, self.a & 0b1000_0000 != 0);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
                     self.pc += 2;
                 },
                 0x15 => { // ORA zpg,X
@@ -158,10 +199,10 @@ impl Cpu6502{
                 },
                 0x16 => { // ASL zpg,X
                     let data: u8 = self.memory[b as usize + self.x as usize];
-                    self.set_flag(Self::C_FLAG, data & 0b1000_0000 != 0);
+                    self.set_flag(Self::C_FLAG, self.check_neg_u8(data));
                     self.memory[b as usize + self.x as usize] <<= 1;
                     let data: u8 = self.memory[b as usize + self.x as usize];
-                    self.set_flag(Self::N_FLAG, data & 0b1000_0000 != 0);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(data));
                     self.set_flag(Self::Z_FLAG, data == 0);
                     self.pc += 2;
                 },
@@ -170,35 +211,29 @@ impl Cpu6502{
                     self.pc += 1;
                 },
                 0x19 => { // ORA abs,Y
-                    let mut addr: usize = (hw + self.y as u16) as usize;
-                    if self.status & Self::C_FLAG != 0{
-                        addr += 1;
-                    }
+                    let addr: usize = hw as usize + self.y as usize 
+                        + self.get_flag_u8(Self::C_FLAG) as usize;
                     self.a |= self.memory[addr];
-                    self.set_flag(Self::N_FLAG, self.a & 0b1000_0000 != 0);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
                     self.set_flag(Self::Z_FLAG, self.a == 0);
                     self.pc += 3;
                 },
                 0x1D => { // ORA abs,X
-                    let mut addr: usize = (hw + self.x as u16) as usize;
-                    if self.status & Self::C_FLAG != 0{
-                        addr += 1;
-                    }
+                    let addr: usize = hw as usize + self.x as usize
+                        + self.get_flag_u8(Self::C_FLAG) as usize;
                     self.a |= self.memory[addr];
-                    self.set_flag(Self::N_FLAG, self.a & 0b1000_0000 != 0);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
                     self.set_flag(Self::Z_FLAG, self.a == 0);
                     self.pc += 3;
                 },
                 0x1E => { // ASL abs,X
-                    let mut addr: usize = (hw + self.x as u16) as usize;
-                    if self.status & Self::C_FLAG != 0{
-                        addr += 1;
-                    }
+                    let addr: usize = hw as usize + self.x as usize 
+                        + self.get_flag_u8(Self::C_FLAG) as usize;
                     let data = self.memory[addr];
-                    self.set_flag(Self::C_FLAG, data & 0b1000_0000 != 0);
+                    self.set_flag(Self::C_FLAG, self.check_neg_u8(data));
                     self.memory[addr] <<= 1;
                     let data = self.memory[addr];
-                    self.set_flag(Self::N_FLAG, data & 0b1000_0000 != 0);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(data));
                     self.set_flag(Self::Z_FLAG, data == 0);
                     self.pc += 3;
                 },
@@ -207,26 +242,54 @@ impl Cpu6502{
                     self.pc = hw;
                 },
                 0x21 => { // AND X,ind
-
-                    unimplemented!("0x{:04} AND X,ind", self.pc);
+                    let index: usize = b as usize + self.x as usize;
+                    let tmp: usize 
+                        = (self.memory[index] as usize) << 8 
+                        | (self.memory[index + 1usize] as usize);
+                    self.a &= self.memory[tmp];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 2;
                 },
                 0x24 => { // BIT zpg
-                    unimplemented!("0x{:04} BIT zpg", self.pc);
+                    let tmp = self.memory[b as usize];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::V_FLAG, tmp & 0b0100_0000 != 0);
+                    self.set_flag(Self::Z_FLAG, self.a & tmp == 0);
+                    self.pc += 2;
                 },
                 0x25 => { // AND zpg
-                    unimplemented!("0x{:04} AND zpg", self.pc);
+                    self.a &= self.memory[b as usize];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 2;
                 },
-                0x26 => { // ROL zpg
-                    unimplemented!("0x{:04} ROL zpg", self.pc);
+                0x26 => { // ROL zpg (sets C, Z, and N)
+                    self.set_flag(Self::C_FLAG, 
+                                  self.check_neg_u8(self.memory[b as usize]));
+                    self.memory[b as usize] = (self.memory[b as usize] << 1) 
+                        | self.get_flag_u8(Self::C_FLAG);
+                    self.set_flag(Self::N_FLAG, 
+                                  self.check_neg_u8(self.memory[b as usize]));
+                    self.set_flag(Self::Z_FLAG, self.memory[b as usize] == 0);
+                    self.pc += 2;
                 },
                 0x28 => { // PLP impl
-                    unimplemented!("0x{:04} PLP impl", self.pc);
+                    self.status = self.pop_u8();
+                    self.pc += 1;
                 },
-                0x29 => { // AND #
-                    unimplemented!("0x{:04} AND #", self.pc);
+                0x29 => { // AND imm
+                    self.a &= b;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 2;
                 },
                 0x2A => { // ROL A
-                    unimplemented!("0x{:04} ROL A", self.pc);
+                    self.set_flag(Self::C_FLAG, self.check_neg_u8(self.a));
+                    self.a = (self.a << 1) | self.get_flag_u8(Self::C_FLAG);
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.pc += 1;
                 },
                 0x2C => { // BIT abs
                     unimplemented!("0x{:04} BIT abs", self.pc);
