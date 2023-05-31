@@ -204,6 +204,12 @@ impl Cpu6502{
         self.set_flag(Self::Z_FLAG, self.a == 0);
     }
 
+    /// Returns the value of (data >> 1) & 0b0111_1111
+    fn op_lsr(&mut self, data: u8) -> u8{
+        self.set_flag(Self::C_FLAG, self.check_neg_u8(data));
+        (data >> 1) & 0b0111_1111
+    }
+
     fn run(&mut self) {
         loop {
             let old_pc: u16 = self.pc;
@@ -414,6 +420,40 @@ impl Cpu6502{
                         | (self.memory[index + 1usize] as usize);
                     self.op_eor(self.memory[addr]);
                     self.pc += 2;
+                },
+                0x45 => { // EOR zpg
+                    let addr: usize = b as usize;
+                    self.op_eor(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x46 => { // LSR zpg
+                    let addr: usize = b as usize;
+                    self.memory[addr] = self.op_lsr(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x48 => { // PHA
+                    self.push_u8(self.a);
+                    self.pc += 1;
+                },
+                0x49 => { // EOR #
+                    self.op_eor(b);
+                    self.pc += 2;
+                },
+                0x4A => { // LSR A
+                    self.a = self.op_lsr(self.a);
+                    self.pc += 1;
+                },
+                0x4C => { // JMP abs
+                    self.pc = hw;
+                },
+                0x4D => { // EOR abs
+                    self.op_eor(self.memory[hw as usize]);
+                    self.pc += 3;
+                },
+                0x4E => { // LSR abs
+                    let addr: usize = hw as usize;
+                    self.memory[addr] = self.op_lsr(self.memory[addr]);
+                    self.pc += 3;
                 },
                 0x58 => { // CLI
                     self.set_flag(Self::I_FLAG, false);
