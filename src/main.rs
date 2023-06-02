@@ -209,6 +209,31 @@ impl Cpu6502{
         self.set_flag(Self::C_FLAG, self.check_neg_u8(data));
         (data >> 1) & 0b0111_1111
     }
+    
+    /// Adds `a` + `data` + `c`, and stores the result in `a` and sets the `c`,
+    /// `n`, `z`, and `v` flags.
+    fn op_adc(&mut self, data: u8){
+        let tmp_a: u8 = self.a;
+        let tmp_add: usize = self.a as usize + data as usize 
+            + self.get_flag_u8(Self::C_FLAG) as usize;
+        self.a = tmp_add as u8;
+        self.set_flag(Self::C_FLAG, self.a as usize != tmp_add);
+        self.set_flag(Self::Z_FLAG, self.a == 0);
+        self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+        self.set_flag(Self::V_FLAG, self.check_neg_u8(self.a) 
+                      != self.check_neg_u8(tmp_a));
+    }
+
+    /// Returns the value of (data >> 1) | (`c` << 7), and sets the `c` flag to
+    /// the bit of data that was shifted off the right end. then sets the `n`
+    /// and `z` flags
+    fn op_ror(&mut self, data: u8) -> u8{
+        let out: u8 = (data >> 1) | (self.get_flag_u8(Self::C_FLAG) << 7);
+        self.set_flag(Self::C_FLAG, (data & 0b0000_0001) == 1);
+        self.set_flag(Self::N_FLAG, self.check_neg_u8(out));
+        self.set_flag(Self::Z_FLAG, out == 0);
+        out
+    }
 
     fn run(&mut self) {
         loop {
@@ -455,38 +480,606 @@ impl Cpu6502{
                     self.memory[addr] = self.op_lsr(self.memory[addr]);
                     self.pc += 3;
                 },
+                0x51 => { // BVC rel
+                    if !self.get_flag(Self::V_FLAG){
+                        self.pc += b as u16;
+                    } else {
+                        self.pc += 2;
+                    }
+                },
+                0x52 => { // EOR ind,Y
+                    let addr: usize = self.get_addr_ind_y();
+                    self.op_eor(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x55 => { // EOR zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.op_eor(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x56 => { // LSR zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.memory[addr] = self.op_lsr(self.memory[addr]);
+                    self.pc += 2;
+                },
                 0x58 => { // CLI
                     self.set_flag(Self::I_FLAG, false);
                     self.pc += 1;
                 },
-                0xA2 => { // LDX #
-                    self.set_flag(Self::N_FLAG, self.check_neg_u8(b));
-                    self.set_flag(Self::Z_FLAG, b == 0);
-                    self.x = b;
+                0x59 => { // EOR abs,Y
+                    let addr: usize = self.get_addr_abs_y();
+                    self.op_eor(self.memory[addr]);
+                    self.pc += 3;
+                },
+                0x5D => { // EOR abs,X
+                    let addr: usize = self.get_addr_abs_x();
+                    self.op_eor(self.memory[addr]);
+                    self.pc += 3;
+                },
+                0x5E => { // LSR abs,X
+                    let addr: usize = self.get_addr_abs_x();
+                    self.memory[addr] = self.op_lsr(self.memory[addr]);
+                    self.pc += 3;
+                },
+                0x60 => { // RTS impl
+                    self.pc = self.pop_u16();
+                },
+                0x61 => { // ADC X,ind
+                    let addr: usize = self.get_addr_x_ind();
+                    self.op_adc(self.memory[addr]);
                     self.pc += 2;
                 },
-                0xB8 => { // CLV
+                0x65 => { // ADC zpg
+                    let addr: usize = b as usize;
+                    self.op_adc(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x66 => { // ROR zpg
+                    let addr: usize = b as usize;
+                    self.memory[addr] = self.op_ror(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x68 => { // PLA impl
+                    self.a = self.pop_u8();
+                    self.pc += 1;
+                },
+                0x69 => { // ADC #
+                    self.op_adc(b);
+                    self.pc += 2;
+                },
+                0x6A => { // ROR A
+                    self.a = self.op_ror(self.a);
+                    self.pc += 1;
+                },
+                // TODO: force all rel references to use signed offsets?
+                0x6C => { // JMP ind
+                    let jmp_addr: u16 = ((self.memory[hw as usize] as u16) 
+                                         << 8) 
+                        | self.memory[hw as usize + 1] as u16;
+                    self.pc = jmp_addr;
+                },
+                0x6D => { // ADC abs
+                    self.op_adc(self.memory[hw as usize]);
+                    self.pc += 3;
+                },
+                0x6E => { // ROR abs
+                    let addr: usize = hw as usize;
+                    self.memory[addr] = self.op_ror(self.memory[addr]);
+                    self.pc += 3;
+                },
+                0x70 => { // BVS rel
+                    if self.get_flag(Self::V_FLAG){
+                        self.pc = (((self.pc as u32) as i32) 
+                            + ((hw as i16) as i32)) as u16
+                    } else {
+                        self.pc += 2;
+                    }
+                },
+                0x71 => { // ADC ind,Y
+                    let addr: usize = self.get_addr_ind_y();
+                    self.op_adc(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x75 => { // ADC zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.op_adc(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x76 => { // ROR zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.memory[addr] = self.op_ror(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x78 => { // SEI impl
+                    self.set_flag(Self::I_FLAG, true);
+                    self.pc += 1;
+                },
+                0x79 => { // ADC abs,Y
+                    let addr: usize = self.get_addr_abs_y();
+                    self.op_adc(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x7D => { // ADC abs,X
+                    let addr: usize = self.get_addr_abs_x();
+                    self.op_adc(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x7E => { // ROR abs,X
+                    let addr: usize = self.get_addr_abs_x();
+                    self.memory[addr] = self.op_ror(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0x81 => { // STA x,ind
+                    let addr: usize = self.get_addr_x_ind();
+                    self.memory[addr] = self.a;
+                    self.pc += 2;
+                },
+                0x84 => { // STY zpg
+                    let addr: usize = b as usize;
+                    self.memory[addr] = self.y;
+                    self.pc += 2;
+                },
+                0x85 => { // STA zpg
+                    let addr: usize = b as usize;
+                    self.memory[addr] = self.a;
+                    self.pc += 2;
+                },
+                0x86 => { // STX zpg
+                    let addr: usize = b as usize;
+                    self.memory[addr] = self.x;
+                    self.pc += 2;
+                },
+                0x88 => { // DEY impl
+                    self.y -= 1;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.y));
+                    self.set_flag(Self::Z_FLAG, self.y == 0);
+                    self.pc += 1;
+                },
+                0x8A => { // TXA impl
+                    self.a = self.x;
+                    self.pc += 1;
+                },
+                0x8C => { // STY abs
+                    let addr: usize = hw as usize;
+                    self.memory[addr] = self.y;
+                    self.pc += 3;
+                },
+                0x8D => { // STA abs
+                    let addr: usize = hw as usize;
+                    self.memory[addr] = self.a;
+                    self.pc += 3;
+                },
+                0x8E => { // STX abs
+                    let addr: usize = hw as usize;
+                    self.memory[addr] = self.x;
+                    self.pc += 3;
+                },
+                0x90 => { // BCC rel
+                    if !self.get_flag(Self::C_FLAG){
+                        self.pc = (((self.pc as u32) as i32) 
+                                   + (b as i8) as i32) as u16;
+                    } else {
+                        self.pc += 2;
+                    }
+                },
+                0x91 => { // STA ind,Y
+                    let addr: usize = self.get_addr_ind_y();
+                    self.memory[addr] = self.a;
+                    self.pc += 2;
+                },
+                0x94 => { // STY zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.memory[addr] = self.y;
+                    self.pc += 2;
+                },
+                0x95 => { // STA zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.memory[addr] = self.a;
+                    self.pc += 2;
+                },
+                0x96 => { // STX zpg,Y
+                    let addr: usize = self.get_addr_zpg_y();
+                    self.memory[addr] = self.x;
+                    self.pc += 2;
+                },
+                0x98 => { // TYA impl
+                    self.a = self.y;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 1;
+                },
+                0x99 => { // STA abs,Y
+                    let addr: usize = self.get_addr_abs_y();
+                    self.memory[addr] = self.a;
+                    self.pc += 2;
+                },
+                0x9A => { // TXS impl
+                    self.sp = self.x;
+                    self.pc += 1;
+                },
+                0x9D => { // STA abs,X
+                    let addr = self.get_addr_abs_x();
+                    self.memory[addr] = self.a;
+                    self.pc += 2;
+                },
+                0xA0 => { // LDY #
+                    self.y = b;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.y));
+                    self.set_flag(Self::Z_FLAG, self.y == 0);
+                    self.pc += 2;
+                },
+                0xA1 => { // LDA X,ind
+                    let addr: usize = self.get_addr_x_ind();
+                    self.a = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 2;
+                },
+                0xA2 => { // LDX #
+                    self.x = b;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.x));
+                    self.set_flag(Self::Z_FLAG, self.x == 0);
+                    self.pc += 2;
+                },
+                0xA4 => { // LDY zpg
+                    let addr: usize = b as usize;
+                    self.y = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.y));
+                    self.set_flag(Self::Z_FLAG, self.y == 0);
+                    self.pc += 2;
+                },
+                0xA5 => { // LDA zpg
+                    let addr: usize = b as usize;
+                    self.a = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 2;
+                },
+                0xA6 => { // LDX zpg
+                    let addr: usize = b as usize;
+                    self.x = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.x));
+                    self.set_flag(Self::Z_FLAG, self.x == 0);
+                    self.pc += 2;
+                },
+                0xA8 => { // TAY impl
+                    self.y = self.a;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.y));
+                    self.set_flag(Self::Z_FLAG, self.y == 0);
+                    self.pc += 1;
+                },
+                0xA9 => { // LDA #
+                    self.a = b;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 2;
+                },
+                0xAA => { // TAX impl
+                    self.x = self.a;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.x));
+                    self.set_flag(Self::Z_FLAG, self.x == 0);
+                    self.pc += 1;
+                },
+                0xAC => { // LDY abs
+                    let addr: usize = hw as usize;
+                    self.y = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.y));
+                    self.set_flag(Self::Z_FLAG, self.y == 0);
+                    self.pc += 3;
+                },
+                0xAD => { // LDA abs
+                    let addr: usize = hw as usize;
+                    self.a = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 3;
+                },
+                0xAE => { // LDX abs
+                    let addr: usize = hw as usize;
+                    self.x = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.x));
+                    self.set_flag(Self::Z_FLAG, self.x == 0);
+                    self.pc += 3;
+                },
+                0xB0 => { // BCS rel
+                    if self.get_flag(Self::C_FLAG){
+                        self.pc = (((self.pc as u32) as i32) 
+                                   + (b as i8) as i32) as u16;
+                    } else {
+                        self.pc += 2;
+                    }
+                },
+                0xB1 => { // LDA ind,Y
+                    let addr: usize = self.get_addr_ind_y();
+                    self.a = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 2;
+                },
+                0xB4 => { // LDY zpg,X 
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.y = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.y));
+                    self.set_flag(Self::Z_FLAG, self.y == 0);
+                    self.pc += 2;
+                },
+                0xB5 => { // LDA zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.a = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 2;
+                },
+                0xB6 => { // LDX zpg,Y
+                    let addr: usize = self.get_addr_zpg_y();
+                    self.x = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.x));
+                    self.set_flag(Self::Z_FLAG, self.x == 0);
+                    self.pc += 2;
+                },
+                0xB8 => { // CLV impl
                     self.set_flag(Self::V_FLAG, false);
                     self.pc += 1;
+                },
+                0xB9 => { // LDA abs,Y
+                    let addr: usize = self.get_addr_abs_y();
+                    self.a = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 2;
+                },
+                0xBA => { // TSX impl
+                    self.x = self.sp;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.x));
+                    self.set_flag(Self::Z_FLAG, self.x == 0);
+                    self.pc += 1;
+                },
+                0xBC => { // LDY abs,X
+                    let addr: usize = self.get_addr_abs_x();
+                    self.y = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.y));
+                    self.set_flag(Self::Z_FLAG, self.y == 0);
+                    self.pc += 2;
+                },
+                0xBD => { // LDA abs,X
+                    let addr: usize = self.get_addr_abs_x();
+                    self.a = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    self.set_flag(Self::Z_FLAG, self.a == 0);
+                    self.pc += 2;
+                },
+                0xBE => { // LDX abs,Y
+                    let addr: usize = self.get_addr_abs_y();
+                    self.y = self.memory[addr];
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.y));
+                    self.set_flag(Self::Z_FLAG, self.y == 0);
+                    self.pc += 2;
+                },
+                0xC0 => { // CPY #
+                    let tmp: u8 = self.y - b;
+                    let tmp2: u16 = (self.y as u16) - (b as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 2;
+                },
+                0xC1 => { // CMP X,ind
+                    let addr: usize = self.get_addr_x_ind();
+                    let tmp: u8 = self.a - self.memory[addr];
+                    let tmp2: u16 = (self.a as u16) 
+                        - (self.memory[addr] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 2;
+                },
+                0xC4 => { // CPY zpg
+                    let addr: usize = b as usize;
+                    let tmp: u8 = self.y - self.memory[addr];
+                    let tmp2: u16 = (self.y as u16) 
+                        - (self.memory[addr] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 2;
+                },
+                0xC5 => { // CMP zpg
+                    let addr: usize = b as usize;
+                    let tmp: u8 = self.a - self.memory[addr];
+                    let tmp2: u16 = (self.a as u16) 
+                        - (self.memory[addr] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 2;
+                },
+                0xC6 => { // DEC zpg
+                    let addr: usize = b as usize;
+                    self.memory[addr] -= 1;
+                    self.set_flag(Self::N_FLAG, 
+                                  self.check_neg_u8(self.memory[addr]));
+                    self.set_flag(Self::Z_FLAG, self.memory[addr] == 0);
+                    self.pc += 2;
+                },
+                0xC8 => { // INY impl
+                    self.y += 1;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.y));
+                    self.set_flag(Self::Z_FLAG, self.y == 0);
+                    self.pc += 1;
+                },
+                0xC9 => { // CMP #
+                    let tmp: u8 = self.a - b;
+                    let tmp2: u16 = (self.a as u16) - (b as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 2;
+                },
+                0xCA => { // DEX impl
+                    self.x += 1;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.x));
+                    self.set_flag(Self::Z_FLAG, self.x == 0);
+                    self.pc += 1;
+                },
+                0xCC => { // CPY abs
+                    let addr: usize = hw as usize;
+                    let tmp: u8 = self.y - self.memory[addr];
+                    let tmp2: u16 = (self.y as u16)
+                        - (self.memory[addr] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 3;
+                },
+                0xCD => { // CMP abs
+                    let addr: usize = hw as usize;
+                    let tmp: u8 = self.a - self.memory[addr];
+                    let tmp2: u16 = (self.a as u16)
+                        - (self.memory[addr] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 3;
+                },
+                0xCE => { // DEC abs
+                    let addr: usize = hw as usize;
+                    self.memory[addr] -= 1;
+                    self.set_flag(Self::N_FLAG,
+                                  self.check_neg_u8(self.memory[addr]));
+                    self.set_flag(Self::Z_FLAG, self.memory[addr] == 0);
+                    self.pc += 3;
+                },
+                0xD0 => { // BNE rel
+                   if self.get_flag_u8(Self::Z_FLAG) == 0{
+                        self.pc = (((self.pc as u32) as i32) 
+                                   + (b as i8) as i32) as u16;
+                   } else {
+                       self.pc += 2;
+                   }
+                },
+                0xD1 => { // CMP ind,Y
+                    let addr: usize = self.get_addr_ind_y();
+                    let tmp: u8 = self.a - self.memory[addr];
+                    let tmp2: u16 = (self.a as u16)
+                        - (self.memory[addr] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 2;
+                },
+                0xD5 => { // CMP zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    let tmp: u8 = self.a - self.memory[addr];
+                    let tmp2: u16 = (self.a as u16)
+                        - (self.memory[addr] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 2;
+                },
+                0xD6 => { // DEC zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.memory[addr] -= 1;
+                    self.set_flag(Self::N_FLAG,
+                                  self.check_neg_u8(self.memory[addr]));
+                    self.set_flag(Self::Z_FLAG, self.memory[addr] == 0);
+                    self.pc += 2;
                 },
                 0xD8 => { // CLD
                     self.set_flag(Self::D_FLAG, false);
                     self.pc += 1;
                 },
-                0xE0 => { // CPX #
-                    self.set_flag(Self::N_FLAG, self.check_neg_u8(b));
-                    self.set_flag(Self::Z_FLAG, b == 0);
-                    self.set_flag(Self::C_FLAG, self.x < b);
+                0xD9 => { // CMP abs,Y
+                    let addr: usize = self.get_addr_abs_y();
+                    let tmp: u8 = self.a - self.memory[addr];
+                    let tmp2: u16 = (self.a as u16)
+                        - (self.memory[addr] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
                     self.pc += 2;
+                },
+                0xDD => { // CMP abs,X
+                    let addr: usize = self.get_addr_abs_x();
+                    let tmp: u8 = self.a - self.memory[addr];
+                    let tmp2: u16 = (self.a as u16)
+                        - (self.memory[addr] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 2;
+                },
+                0xDE => { // DEC abs,X
+                    let addr: usize = self.get_addr_abs_x();
+                    self.memory[addr] -= 1;
+                    self.set_flag(Self::N_FLAG,
+                                  self.check_neg_u8(self.memory[addr]));
+                    self.set_flag(Self::Z_FLAG, self.memory[addr] == 0);
+                    self.pc += 2;
+                },
+                0xE0 => { // CPX #
+                    let tmp: u8 = self.a - b;
+                    let tmp2: u16 = (self.a as u16)
+                        - (b as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 2;
+                },
+                0xE1 => { // SBC X,ind
+                    // let addr: usize = self.get_addr_x_ind();
+                    // self.set_flag(Self::C_FLAG, false);
+                    // self.set_flag(Self::V_FLAG, false); // TODO: FIXME 
+                    todo!("correctly set the C and V flags.");
+                    // self.a = self.a - self.memory[addr] 
+                        // + self.get_flag_u8(Self::C_FLAG);
+                    // self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+                    // self.set_flag(Self::Z_FLAG, self.a == 0);
+                    // self.pc += 2;
+                },
+                0xE4 => { // CPX zpg
+                    unimplemented!("CPX zpg");
+                    // self.pc += 2;
+                },
+                0xE5 => { // SBC zpg
+                    unimplemented!("SBC zpg");
+                    // self.pc += 2;
+                },
+                0xE6 => { // INC zpg
+                    unimplemented!("INC zpg");
+                    // self.pc += 2;
+                },
+                0xE8 => { // INX impl
+                    unimplemented!("INX impl");
+                    // self.pc += 1;
+                },
+                0xE9 => { // SBC #
+                    unimplemented!("SBC #");
+                    // self.pc += 3;
+                },
+                0xEA => { // NOP impl
+                    // self.pc += 1;
+                },
+                0xEC => { // CPX abs
+                    unimplemented!("CPX abs");
+                    // self.pc += 3;
+                },
+                0xED => { // SBC abs
+                    unimplemented!("SBC abs");
+                    // self.pc += 3;
+                },
+                0xEE => { // INC abs
+                    unimplemented!("INC abs");
+                    // self.pc += 3;
                 },
                 0xEF => { // CUSTOM PRINT_REGS
                     self.print_regs();
                     self.pc += 1;
                 },
-                0xff => break, // CUSTOM HALT
+                0xFF => break, // CUSTOM HALT
                 _ => unimplemented!("{:04x} opcode: 0x{opcode:2X}", self.pc),
             }
-            assert!(old_pc != self.pc, "{opcode:02X} does not increment pc.");
+            assert!(old_pc != self.pc, "{opcode:02X} does not modify pc.");
         }
     }
 
