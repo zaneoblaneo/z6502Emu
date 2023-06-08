@@ -19,6 +19,7 @@ impl Cpu6502{
     const Z_FLAG: u8 = 0b0000_0010;
     const C_FLAG: u8 = 0b0000_0001;
 
+
     fn new() -> Self {
         Cpu6502 {
             a: 0,
@@ -60,6 +61,16 @@ impl Cpu6502{
 
     fn get_flag(&self, flag_mask: u8) -> bool{
         self.status & flag_mask != 0
+    }
+    
+    /// Converts a binary number into BCD (only works for numbers 0..=99)
+    fn bin_to_bcd(&self, data: u8) -> u8 {
+       unimplemented!("bin_to_bcd is not yet implemented");
+    }
+
+    /// Converts a BCD number to binary (only works for numbers 0..=99)
+    fn bcd_to_bin(&self, data: u8) -> u8 {
+        unimplemented!("bcd_to_bin is not yet implemented.");
     }
     
     /// returns the flag selected by `flag_mask`
@@ -206,22 +217,33 @@ impl Cpu6502{
 
     /// Returns the value of (data >> 1) & 0b0111_1111
     fn op_lsr(&mut self, data: u8) -> u8{
-        self.set_flag(Self::C_FLAG, self.check_neg_u8(data));
+        self.set_flag(Self::C_FLAG, (data & 1) == 1); 
         (data >> 1) & 0b0111_1111
     }
     
     /// Adds `a` + `data` + `c`, and stores the result in `a` and sets the `c`,
     /// `n`, `z`, and `v` flags.
+    /// must respect `Decimal` mode.
     fn op_adc(&mut self, data: u8){
-        let tmp_a: u8 = self.a;
-        let tmp_add: usize = self.a as usize + data as usize 
-            + self.get_flag_u8(Self::C_FLAG) as usize;
-        self.a = tmp_add as u8;
-        self.set_flag(Self::C_FLAG, self.a as usize != tmp_add);
-        self.set_flag(Self::Z_FLAG, self.a == 0);
-        self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
-        self.set_flag(Self::V_FLAG, self.check_neg_u8(self.a) 
-                      != self.check_neg_u8(tmp_a));
+        if self.get_flag(Self::D_FLAG){
+            unimplemented!("adc in decimal mode is not yet implemented.");
+        } else {
+            let tmp_add: usize = self.a as usize + data as usize 
+                + self.get_flag_u8(Self::C_FLAG) as usize;
+            // TODO: optimize this to only do one add.
+            let tmp_i_add: isize = ((self.a as i8) as isize) 
+                                    + ((data as i8) as isize) 
+                                    + ((self.get_flag_u8(Self::C_FLAG) as i8)
+                                       as isize);
+            let neg_changed: bool = self.check_neg_u8(self.a) 
+                != self.check_neg_u8(tmp_add as u8);
+            self.a = tmp_add as u8;
+            self.set_flag(Self::V_FLAG, !(-128..=127).contains(&tmp_i_add) 
+                          && neg_changed);
+            self.set_flag(Self::Z_FLAG, self.a == 0);
+            self.set_flag(Self::C_FLAG, tmp_add > 0xFF);
+            self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+        }
     }
 
     /// Returns the value of (data >> 1) | (`c` << 7), and sets the `c` flag to
@@ -233,6 +255,27 @@ impl Cpu6502{
         self.set_flag(Self::N_FLAG, self.check_neg_u8(out));
         self.set_flag(Self::Z_FLAG, out == 0);
         out
+    }
+
+    /// Subtracts `a` - `data` + `c`, and stores the result in `a`, while
+    /// setting the `c`, `z`, `n`, and `v` flags.
+    /// must respect `Decimal` mode.
+    fn op_sbc(&mut self, data: u8){
+        unimplemented!("FIXME");
+        if self.get_flag(Self::D_FLAG){
+            unimplemented!("sbc in decimal mode is not yet implemented.");
+        } else {
+            let tmp_sub: usize = self.a as usize - data as usize
+                + self.get_flag_u8(Self::C_FLAG) as usize;
+            self.set_flag(Self::C_FLAG, false);
+            self.set_flag(Self::V_FLAG, false); // TODO: FIXME 
+            self.a = self.a - data
+                + self.get_flag_u8(Self::C_FLAG);
+            self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+            self.set_flag(Self::Z_FLAG, self.a == 0);
+            self.pc += 2;
+            todo!("correctly set the C and V flags.");
+        }
     }
 
     fn run(&mut self) {
@@ -293,7 +336,8 @@ impl Cpu6502{
                 },
                 0x10 => { // BPL rel
                     if self.status & Self::N_FLAG != 0{
-                        self.pc += self.memory[b as usize] as u16;
+                        self.pc = (((self.pc as u32) as i32) 
+                                   + ((b as i8) as i32)) as u16
                     } else {
                         self.pc += 2;
                     }
@@ -388,7 +432,8 @@ impl Cpu6502{
                 },
                 0x31 => { // BMI rel
                     if self.get_flag(Self::N_FLAG){
-                        self.pc += b as u16;
+                        self.pc = (((self.pc as u32) as i32) 
+                                   + ((b as i8) as i32)) as u16
                     } else{
                         self.pc += 2;
                     }
@@ -482,7 +527,8 @@ impl Cpu6502{
                 },
                 0x51 => { // BVC rel
                     if !self.get_flag(Self::V_FLAG){
-                        self.pc += b as u16;
+                        self.pc = (((self.pc as u32) as i32) 
+                                   + ((b as i8) as i32)) as u16
                     } else {
                         self.pc += 2;
                     }
@@ -551,7 +597,6 @@ impl Cpu6502{
                     self.a = self.op_ror(self.a);
                     self.pc += 1;
                 },
-                // TODO: force all rel references to use signed offsets?
                 0x6C => { // JMP ind
                     let jmp_addr: u16 = ((self.memory[hw as usize] as u16) 
                                          << 8) 
@@ -570,7 +615,7 @@ impl Cpu6502{
                 0x70 => { // BVS rel
                     if self.get_flag(Self::V_FLAG){
                         self.pc = (((self.pc as u32) as i32) 
-                            + ((hw as i16) as i32)) as u16
+                                   + ((b as i16) as i32)) as u16
                     } else {
                         self.pc += 2;
                     }
@@ -1018,8 +1063,8 @@ impl Cpu6502{
                     self.pc += 2;
                 },
                 0xE0 => { // CPX #
-                    let tmp: u8 = self.a - b;
-                    let tmp2: u16 = (self.a as u16)
+                    let tmp: u8 = self.x - b;
+                    let tmp2: u16 = (self.x as u16)
                         - (b as u16);
                     self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
                     self.set_flag(Self::Z_FLAG, tmp == 0);
@@ -1027,54 +1072,118 @@ impl Cpu6502{
                     self.pc += 2;
                 },
                 0xE1 => { // SBC X,ind
-                    // let addr: usize = self.get_addr_x_ind();
-                    // self.set_flag(Self::C_FLAG, false);
-                    // self.set_flag(Self::V_FLAG, false); // TODO: FIXME 
-                    todo!("correctly set the C and V flags.");
-                    // self.a = self.a - self.memory[addr] 
-                        // + self.get_flag_u8(Self::C_FLAG);
-                    // self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
-                    // self.set_flag(Self::Z_FLAG, self.a == 0);
-                    // self.pc += 2;
+                    let addr: usize = self.get_addr_x_ind();
+                    self.op_sbc(self.memory[addr]);
+                    self.pc += 2;
                 },
                 0xE4 => { // CPX zpg
-                    unimplemented!("CPX zpg");
-                    // self.pc += 2;
+                    let tmp: u8 = self.x - self.memory[b as usize];
+                    let tmp2: u16 = (self.x as u16) 
+                        - (self.memory[b as usize] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 2;
                 },
                 0xE5 => { // SBC zpg
-                    unimplemented!("SBC zpg");
-                    // self.pc += 2;
+                    let addr: usize = b as usize;
+                    self.op_sbc(self.memory[addr]);
+                    self.pc += 2;
                 },
                 0xE6 => { // INC zpg
-                    unimplemented!("INC zpg");
-                    // self.pc += 2;
+                    let addr: usize = b as usize;
+                    self.memory[addr] += 1;
+                    self.set_flag(Self::N_FLAG, 
+                                  self.check_neg_u8(self.memory[addr]));
+                    self.set_flag(Self::Z_FLAG, self.memory[addr] == 0);
+                    self.pc += 2;
                 },
                 0xE8 => { // INX impl
-                    unimplemented!("INX impl");
-                    // self.pc += 1;
+                    self.x += 1;
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(self.x));
+                    self.set_flag(Self::Z_FLAG, self.x == 0);
+                    self.pc += 1;
                 },
                 0xE9 => { // SBC #
-                    unimplemented!("SBC #");
-                    // self.pc += 3;
+                    self.op_sbc(b);
+                    self.pc += 2;
                 },
                 0xEA => { // NOP impl
-                    // self.pc += 1;
+                    self.pc += 1;
                 },
                 0xEC => { // CPX abs
-                    unimplemented!("CPX abs");
-                    // self.pc += 3;
+                    let addr: usize = hw as usize;
+                    let tmp: u8 = self.x - self.memory[addr];
+                    let tmp2: u16 = (self.x as u16) 
+                        - (self.memory[addr] as u16);
+                    self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
+                    self.set_flag(Self::Z_FLAG, tmp == 0);
+                    self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
+                    self.pc += 3;
                 },
                 0xED => { // SBC abs
-                    unimplemented!("SBC abs");
-                    // self.pc += 3;
+                    let addr: usize = hw as usize;
+                    self.op_sbc(self.memory[addr]);
+                    self.pc += 3;
                 },
                 0xEE => { // INC abs
-                    unimplemented!("INC abs");
-                    // self.pc += 3;
+                    let addr: usize = hw as usize;
+                    self.memory[addr] += 1;
+                    self.set_flag(Self::N_FLAG, 
+                                  self.check_neg_u8(self.memory[addr]));
+                    self.set_flag(Self::Z_FLAG, self.memory[addr] == 0);
+                    self.pc += 3;
                 },
                 0xEF => { // CUSTOM PRINT_REGS
                     self.print_regs();
                     self.pc += 1;
+                },
+                0xF0 => { // BEQ rel
+                    if self.get_flag(Self::Z_FLAG){
+                        self.pc = (((self.pc as u32) as i32) 
+                                   + (b as i8) as i32) as u16;
+                    } else {
+                        self.pc += 2
+                    }
+                },
+                0xF1 => { // SBC ind,Y
+                    let addr: usize = self.get_addr_ind_y();
+                    self.op_sbc(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0xF5 => { // SBC zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.op_sbc(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0xF6 => { // INC zpg,X
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.memory[addr] += 1;
+                    self.set_flag(Self::N_FLAG, 
+                                  self.check_neg_u8(self.memory[addr]));
+                    self.set_flag(Self::Z_FLAG, self.memory[addr] == 0);
+                    self.pc += 2;
+                },
+                0xF8 => { // SED impl
+                    self.set_flag(Self::D_FLAG, true);
+                    self.pc += 1;
+                },
+                0xF9 => { // SBC abs,Y
+                    let addr: usize = self.get_addr_zpg_x();
+                    self.op_sbc(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0xFD => { // SBC abs,X 
+                    let addr: usize = self.get_addr_abs_x();
+                    self.op_sbc(self.memory[addr]);
+                    self.pc += 2;
+                },
+                0xFE => { // INC abs,X
+                    let addr: usize = self.get_addr_abs_x();
+                    self.memory[addr] += 1;
+                    self.set_flag(Self::N_FLAG, 
+                                  self.check_neg_u8(self.memory[addr]));
+                    self.set_flag(Self::Z_FLAG, self.memory[addr] == 0);
                 },
                 0xFF => break, // CUSTOM HALT
                 _ => unimplemented!("{:04x} opcode: 0x{opcode:2X}", self.pc),
