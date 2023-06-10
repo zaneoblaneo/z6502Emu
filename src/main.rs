@@ -1333,16 +1333,17 @@ impl Cpu6502{
 
 /// APPLICATION ENTRY POINT
 fn main() {
+    // Create the CPU object
     let mut cpu: Cpu6502 = Cpu6502::new();
     // set reset vector to 0x8000
     cpu.memory[0xfffc] = 0x00;
     cpu.memory[0xfffd] = 0x80;
     cpu.reset();
     // set instructions
-    cpu.memory[0x8000] = 0xef;
-    cpu.memory[0x8001] = 0xA2;
-    cpu.memory[0x8002] = 0xf0;
-    cpu.memory[0x8003] = 0xef;
-    cpu.memory[0x8004] = 0xff;
+    cpu.memory[0x8000] = 0xef; // DEBUG REG_PRINT
+    cpu.memory[0x8001] = 0xA2; // LDX #
+    cpu.memory[0x8002] = 0xf0; // DATA
+    cpu.memory[0x8003] = 0xef; // DEBUG REG_PRINT
+    cpu.memory[0x8004] = 0xff; // DEBUG HALT
     cpu.run();
 }
