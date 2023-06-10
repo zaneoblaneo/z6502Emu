@@ -11,15 +11,23 @@ struct Cpu6502{
 }
 
 impl Cpu6502{
+    /// A table of constant bitmasks for the:
+    /// Negative flag
     const N_FLAG: u8 = 0b1000_0000;
+    /// Overflow flag
     const V_FLAG: u8 = 0b0100_0000;
+    /// Break flag
     const B_FLAG: u8 = 0b0001_0000;
+    /// Decimal flag
     const D_FLAG: u8 = 0b0000_1000;
+    /// Interrupt flag
     const I_FLAG: u8 = 0b0000_0100;
+    /// Zero flag
     const Z_FLAG: u8 = 0b0000_0010;
+    /// Carry flag
     const C_FLAG: u8 = 0b0000_0001;
 
-
+    /// The CPU constructor
     fn new() -> Self {
         Cpu6502 {
             a: 0,
@@ -32,6 +40,7 @@ impl Cpu6502{
         }
     }
     
+    /// Resets the CPU state to defaults.
     fn reset(&mut self) {
         let lo = self.memory[0xfffc] as u16;
         let hi = self.memory[0xfffd] as u16;
@@ -42,15 +51,15 @@ impl Cpu6502{
         self.sp = 0xFD;
         self.status = 0x24;
     }
-
+    
+    /// A simple helper function that returns true if an 8-bit unsigned number
+    /// would be considered negative if it were a signed number.
     fn check_neg_u8(&self, num: u8) -> bool {
         num & 0b1000_0000 != 0
     }
     
-    fn check_neg_u16(&self, num: u16) -> bool {
-        num & 0b1000_0000_0000_0000 != 0
-    }
-
+    /// A simple helper function that sets the value stored in the `flag_mask`
+    /// bit of the flag register.
     fn set_flag(&mut self, flag_mask: u8, d: bool){
         if d {
             self.status |= flag_mask;
@@ -59,18 +68,96 @@ impl Cpu6502{
         }
     }
 
+    /// A simple helper function that returns the value stored in the bit for
+    /// a given flag mask as a boolean.
     fn get_flag(&self, flag_mask: u8) -> bool{
         self.status & flag_mask != 0
     }
     
-    /// Converts a binary number into BCD (only works for numbers 0..=99)
+    /// A constant lookup table that takes a BCD number in the form of:
+    /// `0xYY` and outputs it in binary. This is really hacky, but I didn't
+    /// want to implement double-dabble.
+    const BCD_TO_BIN: [u8;256] 
+        = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+           50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 
+           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    ];
+
+    /// A contant lookup table that takes a binary number in, and converts it
+    /// to BCD. This is really hacky, but I didn't want to implement
+    /// double-dabble.
+    const BIN_TO_BCD: [u8;256] = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29,
+        0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
+        0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+        0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+        0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+        0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79,
+        0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+        0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29,
+        0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
+        0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+        0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+        0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+        0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79,
+        0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+        0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29,
+        0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
+        0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+        0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 
+    ];
+
+    /// Converts a binary number into BCD (only works correctly for 
+    /// numbers 0..=99, after that we loop back to 0 to emulate overflows.)
+    /// We're doing a Lookup table because memory is cheap, and I don't want
+    /// to implement double-dabble
     fn bin_to_bcd(&self, data: u8) -> u8 {
-       unimplemented!("bin_to_bcd is not yet implemented");
+        Self::BIN_TO_BCD[data as usize]
     }
 
-    /// Converts a BCD number to binary (only works for numbers 0..=99)
+    /// Converts a BCD number to binary (only works correctly for 
+    /// numbers 0..=99, after that, we loop back to 0 to emulate overflows)
+    /// We're doing a Lookup table because memory is cheap, and I don't want
+    /// to implement reverse double-dabble.
     fn bcd_to_bin(&self, data: u8) -> u8 {
-        unimplemented!("bcd_to_bin is not yet implemented.");
+        Self::BCD_TO_BIN[data as usize]
     }
     
     /// returns the flag selected by `flag_mask`
@@ -148,22 +235,26 @@ impl Cpu6502{
         b + self.y as usize
     }
 
+    /// pushes an 8 bit number to the stack, while updating the stack pointer
     fn push_u8(&mut self, d: u8){
         self.memory[self.sp as usize] = d;
         self.sp -= 1u8;
     }
 
+    /// pops an 8 bit number from the stack, while updating the stack pointer
     fn pop_u8(&mut self) -> u8{
         self.sp += 1u8;
         self.memory[self.sp as usize - 1usize]
     }
 
+    /// pushes a 16 bit number to the stack, while updating the stack pointer
     fn push_u16(&mut self, d: u16){
         self.memory[self.sp as usize] = ((d >> 8) & 0xffu16) as u8;
         self.memory[self.sp as usize - 1usize] = d as u8;
         self.sp -= 2u8;
     }
-
+    
+    /// pops a 16 bit number from the stack, while updating the stack pointer
     fn pop_u16(&mut self) -> u16{
         let out: u16 = (self.memory[self.sp as usize + 1usize] as u16)
             << 8 | (self.memory[self.sp as usize] as u16);
@@ -226,11 +317,26 @@ impl Cpu6502{
     /// must respect `Decimal` mode.
     fn op_adc(&mut self, data: u8){
         if self.get_flag(Self::D_FLAG){
-            unimplemented!("adc in decimal mode is not yet implemented.");
+            let bin_data: u8 = self.bcd_to_bin(data);
+            let bin_a: u8 = self.bcd_to_bin(self.a);
+            let tmp_add: usize = bin_a as usize + bin_data as usize 
+                + self.get_flag_u8(Self::C_FLAG) as usize;
+            let tmp_i_add: isize = ((bin_a as i8) as isize)
+                                    + ((bin_data as i8) as isize)
+                                    + ((self.get_flag_u8(Self::C_FLAG) as i8)
+                                       as isize);
+            let neg_changed: bool = self.check_neg_u8(bin_a) 
+                != self.check_neg_u8(tmp_add as u8);
+            self.a = self.bin_to_bcd(tmp_add as u8);
+            self.set_flag(Self::C_FLAG, tmp_add > 99);
+            self.set_flag(Self::Z_FLAG, self.a == 0);
+            self.set_flag(Self::V_FLAG, !(-128..=127).contains(&tmp_i_add)
+                                        && neg_changed);
+            self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
         } else {
             let tmp_add: usize = self.a as usize + data as usize 
                 + self.get_flag_u8(Self::C_FLAG) as usize;
-            // TODO: optimize this to only do one add.
+            // TODO[99]: optimize this to only do one add.
             let tmp_i_add: isize = ((self.a as i8) as isize) 
                                     + ((data as i8) as isize) 
                                     + ((self.get_flag_u8(Self::C_FLAG) as i8)
@@ -239,7 +345,7 @@ impl Cpu6502{
                 != self.check_neg_u8(tmp_add as u8);
             self.a = tmp_add as u8;
             self.set_flag(Self::V_FLAG, !(-128..=127).contains(&tmp_i_add) 
-                          && neg_changed);
+                                        && neg_changed);
             self.set_flag(Self::Z_FLAG, self.a == 0);
             self.set_flag(Self::C_FLAG, tmp_add > 0xFF);
             self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
@@ -261,24 +367,37 @@ impl Cpu6502{
     /// setting the `c`, `z`, `n`, and `v` flags.
     /// must respect `Decimal` mode.
     fn op_sbc(&mut self, data: u8){
-        unimplemented!("FIXME");
         if self.get_flag(Self::D_FLAG){
-            unimplemented!("sbc in decimal mode is not yet implemented.");
+            let bin_data: u8 = self.bcd_to_bin(data);
+            let bin_a: u8 = self.bcd_to_bin(self.a);
+            let tmp_sub: usize = bin_a as usize - bin_data as usize
+                + self.get_flag_u8(Self::C_FLAG) as usize;
+            // TODO[99]: optimize this to only do one sub
+            let tmp_i_sub: isize = ((bin_a as i8) as isize)
+                - ((data as i8) as isize)
+                + ((self.get_flag_u8(Self::C_FLAG) as i8) as isize);
+            self.a = self.bin_to_bcd(tmp_sub as u8);
+            self.set_flag(Self::V_FLAG, !(-127..=127).contains(&tmp_i_sub));
+            self.set_flag(Self::C_FLAG, tmp_i_sub > 0);
+            self.set_flag(Self::Z_FLAG, self.a == 0);
+            self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
         } else {
             let tmp_sub: usize = self.a as usize - data as usize
                 + self.get_flag_u8(Self::C_FLAG) as usize;
-            self.set_flag(Self::C_FLAG, false);
-            self.set_flag(Self::V_FLAG, false); // TODO: FIXME 
-            self.a = self.a - data
-                + self.get_flag_u8(Self::C_FLAG);
-            self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+            let tmp_i_sub: isize = ((self.a as i8) as isize)
+                - ((data as i8) as isize) 
+                + ((self.get_flag_u8(Self::C_FLAG) as i8) as isize);
+            self.a = tmp_sub as u8;
+            self.set_flag(Self::V_FLAG, !(-127..=127).contains(&tmp_i_sub));
+            self.set_flag(Self::C_FLAG, tmp_sub > 0);
             self.set_flag(Self::Z_FLAG, self.a == 0);
-            self.pc += 2;
-            todo!("correctly set the C and V flags.");
+            self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
         }
     }
 
+    /// The main CPU loop.
     fn run(&mut self) {
+        // TODO[98]: implement cycle counting, and timing.
         loop {
             let old_pc: u16 = self.pc;
             let opcode: u8  = self.memory[self.pc as usize];
@@ -1134,10 +1253,6 @@ impl Cpu6502{
                     self.set_flag(Self::Z_FLAG, self.memory[addr] == 0);
                     self.pc += 3;
                 },
-                0xEF => { // CUSTOM PRINT_REGS
-                    self.print_regs();
-                    self.pc += 1;
-                },
                 0xF0 => { // BEQ rel
                     if self.get_flag(Self::Z_FLAG){
                         self.pc = (((self.pc as u32) as i32) 
@@ -1184,6 +1299,11 @@ impl Cpu6502{
                     self.set_flag(Self::N_FLAG, 
                                   self.check_neg_u8(self.memory[addr]));
                     self.set_flag(Self::Z_FLAG, self.memory[addr] == 0);
+                    self.pc += 2;
+                },
+                0xEF => { // CUSTOM PRINT_REGS
+                    self.print_regs();
+                    self.pc += 1;
                 },
                 0xFF => break, // CUSTOM HALT
                 _ => unimplemented!("{:04x} opcode: 0x{opcode:2X}", self.pc),
@@ -1192,6 +1312,8 @@ impl Cpu6502{
         }
     }
 
+    /// A debug method for printing register states. (Currently the only way to
+    /// get any data out of the CPU
     fn print_regs(&self) {
         println!("CPU STATE [
         a: 0x{:02X}
@@ -1209,6 +1331,7 @@ impl Cpu6502{
     }
 }
 
+/// APPLICATION ENTRY POINT
 fn main() {
     let mut cpu: Cpu6502 = Cpu6502::new();
     // set reset vector to 0x8000
