@@ -1080,7 +1080,7 @@ impl Cpu6502{
                     self.pc += 2;
                 },
                 0xCA => { // DEX impl
-                    self.x += 1;
+                    self.x -= 1;
                     self.set_flag(Self::N_FLAG, self.check_neg_u8(self.x));
                     self.set_flag(Self::Z_FLAG, self.x == 0);
                     self.pc += 1;
@@ -1256,7 +1256,7 @@ impl Cpu6502{
                 0xF0 => { // BEQ rel
                     if self.get_flag(Self::Z_FLAG){
                         self.pc = (((self.pc as u32) as i32) 
-                                   + (b as i8) as i32) as u16;
+                                   + ((b as i8) as i32)) as u16;
                     } else {
                         self.pc += 2
                     }
@@ -1308,7 +1308,7 @@ impl Cpu6502{
                 0xFF => break, // CUSTOM HALT
                 _ => unimplemented!("{:04x} opcode: 0x{opcode:2X}", self.pc),
             }
-            assert!(old_pc != self.pc, "{opcode:02X} does not modify pc.");
+            assert!(old_pc != self.pc, "0x{:04x}:0x{opcode:02X} does not modify pc.", self.pc);
         }
     }
 
@@ -1332,6 +1332,7 @@ impl Cpu6502{
 }
 
 /// APPLICATION ENTRY POINT
+#[allow(unused_assignments)]
 fn main() {
     // Create the CPU object
     let mut cpu: Cpu6502 = Cpu6502::new();
@@ -1340,10 +1341,26 @@ fn main() {
     cpu.memory[0xfffd] = 0x80;
     cpu.reset();
     // set instructions
-    cpu.memory[0x8000] = 0xef; // DEBUG REG_PRINT
-    cpu.memory[0x8001] = 0xA2; // LDX #
-    cpu.memory[0x8002] = 0xf0; // DATA
-    cpu.memory[0x8003] = 0xef; // DEBUG REG_PRINT
-    cpu.memory[0x8004] = 0xff; // DEBUG HALT
+    let mut a: usize = 0x8000;
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xA9; // LDA #
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x0A; // DATA (10)
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x85; // STA
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xCC; // DATA (0x00CC)
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xAA; // TAX
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xA9; // LDA #
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x00; // DATA (0)
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x65; // ADC
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xCC; // ZPG_ADDR 0x00CC
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xCA; // DEX
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xD0; // BNE
+    cpu.memory[{let tmp = a; a += 1; tmp}] = -5i8 as u8;  // DATA (-5)
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xff; // DEBUG HALT
     cpu.run();
 }
