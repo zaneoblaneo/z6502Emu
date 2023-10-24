@@ -1369,31 +1369,33 @@ fn main() {
     cpu.memory[0x40] = 0xe0;                              // Location of screen
     cpu.memory[0x41] = 0x00;                              // memory
     // set instructions
-    let mut a: usize = 0x8000;
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xa0;        // LDY 0x00
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x00;
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xb9;        // LDA 0x9000,Y
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x90;
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x00;
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x91;        // STA (0x40),Y
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x40;
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xc8;        // INY
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xc0;        // CPY 10
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x0a;
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xd0;        // BEQ -6
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xf8;
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xdf;        // DEBUG PRINT SCREEN
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xff;        // DEBUG HALT
-    let mut a: usize = 0x9000;
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x48;        // 'H'
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x65;        // 'e'
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x6c;        // 'l'
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x6c;        // 'l'
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x6f;        // 'o'
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x72;        // 'r'
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x6c;        // 'l'
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x64;        // 'd'
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x21;        // '!'
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x00;        // '0x00'
+
+    let mut index: usize = 0x8000;                         // CODE_SEGMENT
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0xa0; // LDY 0x00
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x00;
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0xb9; // LDA 0x9000,Y
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x90;
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x00;
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x91; // STA (0x40),Y
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x40;
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0xc8; // INY
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0xc0; // CPY 10
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x0a;
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0xd0; // BEQ -6
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0xf8;
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0xdf; // DEBUG PRINT SCREEN
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0xff; // DEBUG HALT
+
+    let mut index: usize = 0x9000;                         // DATA SEGMENT
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x48; // 'H'
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x65; // 'e'
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x6c; // 'l'
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x6c; // 'l'
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x6f; // 'o'
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x72; // 'r'
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x6c; // 'l'
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x64; // 'd'
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x21; // '!'
+    cpu.memory[{let tmp = index; index += 1; tmp}] = 0x00; // '0x00'
     cpu.run();
 }
