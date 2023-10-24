@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+use std::io::Write;
+
 #[derive(Copy, Clone)]
 struct Cpu6502{
     a: u8,
@@ -238,7 +240,7 @@ impl Cpu6502{
     /// pushes an 8 bit number to the stack, while updating the stack pointer
     fn push_u8(&mut self, d: u8){
         self.memory[self.sp as usize] = d;
-        self.sp -= 1u8;
+        (self.sp, _) = self.sp.overflowing_sub(1u8);
     }
 
     /// pops an 8 bit number from the stack, while updating the stack pointer
@@ -251,7 +253,7 @@ impl Cpu6502{
     fn push_u16(&mut self, d: u16){
         self.memory[self.sp as usize] = ((d >> 8) & 0xffu16) as u8;
         self.memory[self.sp as usize - 1usize] = d as u8;
-        self.sp -= 2u8;
+        (self.sp, _) = self.sp.overflowing_sub(2u8);
     }
     
     /// pops a 16 bit number from the stack, while updating the stack pointer
@@ -392,6 +394,22 @@ impl Cpu6502{
             self.set_flag(Self::C_FLAG, tmp_sub > 0);
             self.set_flag(Self::Z_FLAG, self.a == 0);
             self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
+        }
+    }
+
+    fn write_screen_memory(&self) {
+        const SCREEN_WIDTH: usize = 64usize;
+        const SCREEN_HEIGHT: usize = 16usize;
+        const SCREEN_MEMORY_START: usize = 0xe000usize;
+        const SCREEN_MEMORY_END: usize   = 0xe200usize;
+        for y in 0..SCREEN_HEIGHT {
+            let out: String = String::from_utf8_lossy(
+                &self.memory[(SCREEN_MEMORY_START 
+                                + (y*SCREEN_WIDTH) as usize)..
+                            (SCREEN_MEMORY_START 
+                                + ((y+1)*(SCREEN_WIDTH)) - 1usize)])
+                .to_string();
+            let _ = write!(std::io::stdout(), "\x1b[{};0H {}", y, out);
         }
     }
 
@@ -990,7 +1008,7 @@ impl Cpu6502{
                     self.a = self.memory[addr];
                     self.set_flag(Self::N_FLAG, self.check_neg_u8(self.a));
                     self.set_flag(Self::Z_FLAG, self.a == 0);
-                    self.pc += 2;
+                    self.pc += 3;
                 },
                 0xBA => { // TSX impl
                     self.x = self.sp;
@@ -1020,8 +1038,8 @@ impl Cpu6502{
                     self.pc += 2;
                 },
                 0xC0 => { // CPY #
-                    let tmp: u8 = self.y - b;
-                    let tmp2: u16 = (self.y as u16) - (b as u16);
+                    let (tmp, _) = self.y.overflowing_sub(b);
+                    let (tmp2, _) = (self.y as u16).overflowing_sub(b as u16);
                     self.set_flag(Self::N_FLAG, self.check_neg_u8(tmp));
                     self.set_flag(Self::Z_FLAG, tmp == 0);
                     self.set_flag(Self::C_FLAG, tmp != tmp2 as u8);
@@ -1305,10 +1323,15 @@ impl Cpu6502{
                     self.print_regs();
                     self.pc += 1;
                 },
+                0xDF => { // CUSTOM PRINT SCREEN MEMORY
+                    self.write_screen_memory();
+                    self.pc += 1;
+                },
                 0xFF => break, // CUSTOM HALT
                 _ => unimplemented!("{:04x} opcode: 0x{opcode:2X}", self.pc),
             }
-            assert!(old_pc != self.pc, "0x{:04x}:0x{opcode:02X} does not modify pc.", self.pc);
+            assert!(old_pc != self.pc, 
+                    "0x{:04x}:0x{opcode:02X} does not modify pc.", self.pc);
         }
     }
 
@@ -1339,28 +1362,38 @@ fn main() {
     // set reset vector to 0x8000
     cpu.memory[0xfffc] = 0x00;
     cpu.memory[0xfffd] = 0x80;
+    
+    // cpu.memory[0xe000] = 0x00; // START SCREEN MEMORY
+    // cpu.memory[0xe960] = 0x00; // END SCREEN MEMORY
     cpu.reset();
+    cpu.memory[0x40] = 0xe0;                              // Location of screen
+    cpu.memory[0x41] = 0x00;                              // memory
     // set instructions
     let mut a: usize = 0x8000;
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xA9; // LDA #
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x0A; // DATA (10)
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x85; // STA
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xCC; // DATA (0x00CC)
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xAA; // TAX
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xA9; // LDA #
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x00; // DATA (0)
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x65; // ADC
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xCC; // ZPG_ADDR 0x00CC
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xCA; // DEX
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xD0; // BNE
-    cpu.memory[{let tmp = a; a += 1; tmp}] = -5i8 as u8;  // DATA (-5)
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xef; // DEBUG REG_PRINT
-    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xff; // DEBUG HALT
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xa0;        // LDY 0x00
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x00;
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xb9;        // LDA 0x9000,Y
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x90;
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x00;
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x91;        // STA (0x40),Y
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x40;
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xc8;        // INY
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xc0;        // CPY 10
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x0a;
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xd0;        // BEQ -6
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xf8;
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xdf;        // DEBUG PRINT SCREEN
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0xff;        // DEBUG HALT
+    let mut a: usize = 0x9000;
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x48;        // 'H'
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x65;        // 'e'
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x6c;        // 'l'
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x6c;        // 'l'
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x6f;        // 'o'
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x72;        // 'r'
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x6c;        // 'l'
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x64;        // 'd'
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x21;        // '!'
+    cpu.memory[{let tmp = a; a += 1; tmp}] = 0x00;        // '0x00'
     cpu.run();
 }

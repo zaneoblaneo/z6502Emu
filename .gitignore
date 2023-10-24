@@ -2,3 +2,4 @@
 *.secret
 *.swp
 Cargo.lock
+tags
