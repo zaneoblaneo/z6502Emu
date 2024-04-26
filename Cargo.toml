@@ -1,5 +1,5 @@
 [package]
-name = "z6502_emu"
+name = "z_6502_emu"
 version = "0.1.0"
 edition = "2021"
 
